@@ -27,6 +27,17 @@ const uint16_t RAIN_VAL_THRESHOLD = MAX_RAIN_VAL - 5;   // AD変換後の値が�
                                                         // 乾いているときは安定してMAX_RAIN_VALになるので多分 -1 でも大丈夫なくらい。
                                                         // ただし雨が降っているときでもMAX_RAIN_VALに近い値になることもあるので、
                                                         // ここでは -5 くらいにしておく。
+const uint16_t RENOTIFICATION_RAIN_VAL_THRESHOLD = 1500;    // AD変換後の値がこの値未満だったら降雨中でも再通知する。
+                                                            // ただし前回降雨中通知からRENOTIFICATION_INTERVALの時間が
+                                                            // 経過している場合のみ通知。
+                                                            // これは水滴の不純物によって乾燥後も
+                                                            // 雨滴センサに通電し続けていると思われる現象が見られており、
+                                                            // その状態でまた雨が降った場合の見落とし対策である。
+const uint32_t RENOTIFICATION_INTERVAL = 1800000;   // 再通知の抑止期間(ミリ秒)。
+                                                    // ここでいう再通知は、RENOTIFICATION_RAIN_VAL_THRESHOLDの説明を参照。
+                                                    // 前回通知から当項目の時間(ミリ秒)が経過している場合のみ再通知する。
+                                                    // 前回の降雨中通知から30分間は油断しないだろうと思われることと、
+                                                    // 短すぎると通知が多すぎるのでこの値とする。
 const uint16_t CONTINUOUS_DRY_TIME = 10000; // 乾燥したと思われる値(RAIN_VAL_THRESHOLD)以上の観測が、
                                             // 何ミリ秒連続したら本当に乾燥したとみなすか
 
@@ -145,6 +156,7 @@ void loop() {
     static bool isRaining = false;
     static unsigned long lastSentTime = 0L;
     static unsigned long lastRainingTime = 0L;
+    static unsigned long lastRainingNotificationTime = 0L;
     float pressure;
     float temperature;
     float humidity;
@@ -162,11 +174,16 @@ void loop() {
     rainVal = analogRead(ANALOG_PIN);
 
     if (rainVal < RAIN_VAL_THRESHOLD) {
-        if (! isRaining) {
+        // 初めて降雨中になったタイミングまたは、降雨中でも再通知する閾値未満で再通知抑止期間も経過している場合
+        if ( (! isRaining)
+                || ((rainVal < RENOTIFICATION_RAIN_VAL_THRESHOLD)
+                    && ((millis() - lastRainingNotificationTime) > RENOTIFICATION_INTERVAL))
+           ) {
             isRaining = true;
             snprintf(msg, sizeof(msg), "雨が降り始めたよ！ (rainVal=%u)", rainVal);
             Serial.println(msg);
             sendToLine(msg);
+            lastRainingNotificationTime = millis();
         }
         lastRainingTime = millis();
     } else {
