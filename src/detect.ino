@@ -142,7 +142,6 @@ void loop() {
     float temperature;
     float humidity;
     uint16_t rainVal;
-    float rainVoltage;
 
     ArduinoOTA.handle();
     M5.update();
@@ -186,16 +185,15 @@ void loop() {
             humidity = 0;
         }
         rainVal = analogRead(ANALOG_PIN);
-        rainVoltage = rainVal * MAX_VOLTAGE / ADC_RESOLUTOIN;
         ambient.set(1, isRaining);
         ambient.set(2, pressure);
         ambient.set(3, temperature);
         ambient.set(4, humidity);
-        ambient.set(5, rainVoltage);
+        // 5番は元々rainVoltageを送っていたが使わなそうなので削除
         ambient.set(6, rainVal);
         ambient.send();
         lastSentTime = millis();
-        snprintf(msg, sizeof(msg), "raining=%d, pressure=%f, temperature=%f, humidity=%f, rainVoltage=%f, rainVal=%u", isRaining, pressure, temperature, humidity, rainVoltage, rainVal);
+        snprintf(msg, sizeof(msg), "raining=%d, pressure=%f, temperature=%f, humidity=%f, rainVal=%u", isRaining, pressure, temperature, humidity, rainVal);
         Serial.println(msg);
     }
 }
