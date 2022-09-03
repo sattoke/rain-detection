@@ -22,7 +22,11 @@ const uint8_t WIFI_CONNECTION_RETRIES = 5;
 const uint8_t DIGITAL_PIN = 23;
 const uint8_t ANALOG_PIN = 33;
 const float MAX_VOLTAGE = 3.3;  // アナログ入力は0.0Vから3.3Vの電圧として入力される
-const uint16_t ADC_RESOLUTOIN = 4096; // 実際にプログラムから見えるアナログ入力はAD変換された0から4095の整数値
+const uint16_t MAX_RAIN_VAL = 4095; // AD変換後の値の最大値。実際にプログラムから見えるアナログ入力はAD変換された0から4095の整数値
+const uint16_t RAIN_VAL_THRESHOLD = MAX_RAIN_VAL - 5;   // AD変換後の値がどれくらいだったら雨が降り始めたと判定するか。
+                                                        // 乾いているときは安定してMAX_RAIN_VALになるので多分 -1 でも大丈夫なくらい。
+                                                        // ただし雨が降っているときでもMAX_RAIN_VALに近い値になることもあるので、
+                                                        // ここでは -5 くらいにしておく。
 
 WebServer server(80);
 WiFiClient client;
@@ -152,18 +156,18 @@ void loop() {
     }
 
     // 雨の降り始め検出は即応性が欲しいので毎ループ確認
-    if (digitalRead(DIGITAL_PIN) == LOW) {
+    rainVal = analogRead(ANALOG_PIN);
+
+    if (rainVal < RAIN_VAL_THRESHOLD) {
         if (! isRaining) {
             isRaining = true;
-            rainVal = analogRead(ANALOG_PIN);
             snprintf(msg, sizeof(msg), "雨が降り始めたよ！ (rainVal=%u)", rainVal);
             Serial.println(msg);
             sendToLine(msg);
         }
-    } else if (digitalRead(DIGITAL_PIN) == HIGH) {
+    } else {
         if (isRaining) {
             isRaining = false;
-            rainVal = analogRead(ANALOG_PIN);
             snprintf(msg, sizeof(msg), "水滴が乾いたよ（雨はとっくに上がったよ）。 (rainVal=%u)", rainVal);
             Serial.println(msg);
             sendToLine(msg);
@@ -184,7 +188,7 @@ void loop() {
             temperature = 0;
             humidity = 0;
         }
-        rainVal = analogRead(ANALOG_PIN);
+
         ambient.set(1, isRaining);
         ambient.set(2, pressure);
         ambient.set(3, temperature);
