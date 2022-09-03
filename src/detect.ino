@@ -27,6 +27,8 @@ const uint16_t RAIN_VAL_THRESHOLD = MAX_RAIN_VAL - 5;   // AD変換後の値が�
                                                         // 乾いているときは安定してMAX_RAIN_VALになるので多分 -1 でも大丈夫なくらい。
                                                         // ただし雨が降っているときでもMAX_RAIN_VALに近い値になることもあるので、
                                                         // ここでは -5 くらいにしておく。
+const uint16_t CONTINUOUS_DRY_TIME = 10000; // 乾燥したと思われる値(RAIN_VAL_THRESHOLD)以上の観測が、
+                                            // 何ミリ秒連続したら本当に乾燥したとみなすか
 
 WebServer server(80);
 WiFiClient client;
@@ -142,6 +144,7 @@ void loop() {
     char msg[256];
     static bool isRaining = false;
     static unsigned long lastSentTime = 0L;
+    static unsigned long lastRainingTime = 0L;
     float pressure;
     float temperature;
     float humidity;
@@ -165,12 +168,16 @@ void loop() {
             Serial.println(msg);
             sendToLine(msg);
         }
+        lastRainingTime = millis();
     } else {
         if (isRaining) {
-            isRaining = false;
-            snprintf(msg, sizeof(msg), "水滴が乾いたよ（雨はとっくに上がったよ）。 (rainVal=%u)", rainVal);
-            Serial.println(msg);
-            sendToLine(msg);
+            // センサが乾ききる直前は閾値の上下を行ったり来たりするので乾いた判定は遅延させる(即応性は不要)
+            if ((millis() - lastRainingTime) > CONTINUOUS_DRY_TIME) {
+                isRaining = false;
+                snprintf(msg, sizeof(msg), "水滴が乾いたよ（雨はとっくに上がったよ）。 (rainVal=%u)", rainVal);
+                Serial.println(msg);
+                sendToLine(msg);
+            }
         }
     }
 
