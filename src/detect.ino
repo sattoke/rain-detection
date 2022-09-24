@@ -1,5 +1,6 @@
 #include <M5Atom.h>
 #include <WiFi.h>
+#include <time.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Ambient.h>
@@ -16,6 +17,9 @@
 // const char* AMB_WRITEKEY = "xxx";
 // const uint32_t AMB_CHANNELID = xxx;
 // const char* LINE_TOKEN = "xxx";
+// const char* ELASTICSEARCH_URL = "https://localhost:9200/INDEX_NAME/_doc/";
+// const char* ELASTICSEARCH_USER = "xxx";
+// const char* ELASTICSEARCH_PASSWORD = "xxx";
 
 
 const uint8_t WIFI_CONNECTION_RETRIES = 5;
@@ -48,6 +52,20 @@ void sendToLine(const char *msg) {
     http.addHeader("Authorization", "Bearer " + String(LINE_TOKEN));
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     int statusCode = http.POST("message=" + urlEncode(msg));
+}
+
+void sendToElasticSearch(struct timespec ts, float pressure, float temperature, float humidity, uint16_t rainVal) {
+    char msg[256];
+    HTTPClient http;
+    http.begin(ELASTICSEARCH_URL);
+    http.setAuthorization(ELASTICSEARCH_USER, ELASTICSEARCH_PASSWORD);
+    http.addHeader("Content-Type", "application/json");
+
+    // epoch_millisについて、Arduinoでは %lld や PRId64 が正常に動作しないようである
+    snprintf(msg, sizeof(msg),
+            "{\"epoch_millis\":%ld%03d,\"pressure\":%f,\"temperature\":%f,\"humidity\":%f,\"rainVal\":%d}",
+            ts.tv_sec, ts.tv_nsec / 1000000L, pressure, temperature, humidity, rainVal);
+    int statusCode = http.POST(msg);
 }
 
 void setupOTA() {
@@ -140,6 +158,7 @@ void setup() {
     setupOTA();
     setupHTTPServer();
 
+    configTime(9 * 60 * 60, 0, "ntp.nict.jp", "ntp.jst.mfeed.ad.jp");
     ambient.begin(AMB_CHANNELID, AMB_WRITEKEY, &client);
     sendToLine("起動完了");
 }
@@ -154,6 +173,7 @@ void loop() {
     float temperature;
     float humidity;
     uint16_t rainVal;
+    struct timespec ts;
 
     ArduinoOTA.handle();
     M5.update();
@@ -162,6 +182,8 @@ void loop() {
 
     if (M5.Btn.wasPressed()) {
     }
+
+    clock_gettime(CLOCK_REALTIME, &ts);
 
     // 雨の降り始め検出は即応性が欲しいので毎ループ確認
     rainVal = analogRead(ANALOG_PIN);
@@ -202,6 +224,7 @@ void loop() {
             humidity = 0;
         }
 
+        sendToElasticSearch(ts, pressure, temperature, humidity, rainVal);
         ambient.set(1, isRaining);
         ambient.set(2, pressure);
         ambient.set(3, temperature);
