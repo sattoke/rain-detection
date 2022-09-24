@@ -54,6 +54,16 @@ void sendToLine(const char *msg) {
     int statusCode = http.POST("message=" + urlEncode(msg));
 }
 
+void sendToAmbient(float pressure, float temperature, float humidity, uint16_t rainVal) {
+    // 1番は元々isRainingを送っていたが使わなそうなので削除
+    ambient.set(2, pressure);
+    ambient.set(3, temperature);
+    ambient.set(4, humidity);
+    // 5番は元々rainVoltageを送っていたが使わなそうなので削除
+    ambient.set(6, rainVal);
+    ambient.send();
+}
+
 void sendToElasticSearch(struct timespec ts, float pressure, float temperature, float humidity, uint16_t rainVal) {
     char msg[256];
     HTTPClient http;
@@ -225,15 +235,7 @@ void loop() {
         }
 
         sendToElasticSearch(ts, pressure, temperature, humidity, rainVal);
-        ambient.set(1, isRaining);
-        ambient.set(2, pressure);
-        ambient.set(3, temperature);
-        ambient.set(4, humidity);
-        // 5番は元々rainVoltageを送っていたが使わなそうなので削除
-        ambient.set(6, rainVal);
-        ambient.send();
+        sendToAmbient(pressure, temperature, humidity, rainVal);
         lastSentTime = millis();
-        snprintf(msg, sizeof(msg), "raining=%d, pressure=%f, temperature=%f, humidity=%f, rainVal=%u", isRaining, pressure, temperature, humidity, rainVal);
-        Serial.println(msg);
     }
 }
