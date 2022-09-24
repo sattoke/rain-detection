@@ -240,6 +240,16 @@ void loop() {
 
     // Ambientは1チャネル当たりデータ登録数が1日3,000件という制限があるため30秒毎に送信
     if (lastAmbientSentTime == 0L || (millis() - lastAmbientSentTime) > 30000) {
+        pressure = qmp6988.calcPressure();
+
+        if (sht30.get() == 0) {
+            temperature = sht30.cTemp;
+            humidity = sht30.humidity;
+        } else {
+            temperature = 0;
+            humidity = 0;
+        }
+
         sendToAmbient(pressure, temperature, humidity, rainVal);
         lastAmbientSentTime = millis();
     }
