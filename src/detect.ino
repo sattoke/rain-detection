@@ -176,7 +176,8 @@ void setup() {
 void loop() {
     char msg[256];
     static bool isRaining = false;
-    static unsigned long lastSentTime = 0L;
+    static unsigned long lastAmbientSentTime = 0L;
+    static unsigned long lastElasticsearchSentTime = 0L;
     static unsigned long lastRainingTime = 0L;
     static unsigned long lastRainingNotificationTime = 0L;
     float pressure;
@@ -222,8 +223,7 @@ void loop() {
     // M5Stack Grayではよく接続が切れてたので切れていたら再接続(Atom Liteでは切れるかは不明)
     connectWiFi();
 
-    // Ambientは1チャネル当たりデータ登録数が1日3,000件という制限があるため30秒毎に送信
-    if (lastSentTime == 0L || (millis() - lastSentTime) > 30000) {
+    if (lastElasticsearchSentTime == 0L || (millis() - lastElasticsearchSentTime) > 1000) {
         pressure = qmp6988.calcPressure();
 
         if (sht30.get() == 0) {
@@ -235,7 +235,12 @@ void loop() {
         }
 
         sendToElasticSearch(ts, pressure, temperature, humidity, rainVal);
+        lastElasticsearchSentTime = millis();
+    }
+
+    // Ambientは1チャネル当たりデータ登録数が1日3,000件という制限があるため30秒毎に送信
+    if (lastAmbientSentTime == 0L || (millis() - lastAmbientSentTime) > 30000) {
         sendToAmbient(pressure, temperature, humidity, rainVal);
-        lastSentTime = millis();
+        lastAmbientSentTime = millis();
     }
 }
