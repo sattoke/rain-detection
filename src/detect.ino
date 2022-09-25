@@ -64,7 +64,7 @@ void sendToAmbient(float pressure, float temperature, float humidity, uint16_t r
     ambient.send();
 }
 
-void sendToElasticSearch(struct timespec ts, float pressure, float temperature, float humidity, uint16_t rainVal) {
+void sendToElasticSearch(struct timespec *now, float pressure, float temperature, float humidity, uint16_t rainVal) {
     char msg[256];
     HTTPClient http;
     http.begin(ELASTICSEARCH_URL);
@@ -74,8 +74,16 @@ void sendToElasticSearch(struct timespec ts, float pressure, float temperature, 
     // epoch_millisについて、Arduinoでは %lld や PRId64 が正常に動作しないようである
     snprintf(msg, sizeof(msg),
             "{\"epoch_millis\":%ld%03d,\"pressure\":%f,\"temperature\":%f,\"humidity\":%f,\"rainVal\":%d}",
-            ts.tv_sec, ts.tv_nsec / 1000000L, pressure, temperature, humidity, rainVal);
+            now->tv_sec, now->tv_nsec / 1000000L, pressure, temperature, humidity, rainVal);
     int statusCode = http.POST(msg);
+}
+
+uint64_t elapsedMsec(struct timespec *ts1, struct timespec *ts2) {
+    return (ts1->tv_sec - ts2->tv_sec) * 1000 + (ts1->tv_nsec - ts2->tv_nsec) / 1000000;
+}
+
+bool isInitialTime(struct timespec *ts) {
+    return (ts->tv_sec == 0 && ts->tv_nsec == 0) ? true : false;
 }
 
 void setupOTA() {
@@ -176,15 +184,15 @@ void setup() {
 void loop() {
     char msg[256];
     static bool isRaining = false;
-    static unsigned long lastAmbientSentTime = 0L;
-    static unsigned long lastElasticsearchSentTime = 0L;
-    static unsigned long lastRainingTime = 0L;
-    static unsigned long lastRainingNotificationTime = 0L;
+    static struct timespec lastAmbientSentTime = {0, 0};
+    static struct timespec lastElasticsearchSentTime = {0, 0};
+    static struct timespec lastRainingTime = {0, 0};
+    static struct timespec lastRainingNotificationTime = {0, 0};
     float pressure;
     float temperature;
     float humidity;
     uint16_t rainVal;
-    struct timespec ts;
+    struct timespec now;
 
     ArduinoOTA.handle();
     M5.update();
@@ -194,7 +202,7 @@ void loop() {
     if (M5.Btn.wasPressed()) {
     }
 
-    clock_gettime(CLOCK_REALTIME, &ts);
+    clock_gettime(CLOCK_REALTIME, &now);
 
     // 雨の降り始め検出は即応性が欲しいので毎ループ確認
     rainVal = analogRead(ANALOG_PIN);
@@ -205,13 +213,13 @@ void loop() {
             snprintf(msg, sizeof(msg), "雨が降り始めたよ！ (rainVal=%u)", rainVal);
             Serial.println(msg);
             sendToLine(msg);
-            lastRainingNotificationTime = millis();
+            lastRainingNotificationTime = now;
         }
-        lastRainingTime = millis();
+        lastRainingTime = now;
     } else if (MIN_RAIN_VAL_TO_STOP <= rainVal) {
         if (isRaining) {
             // センサが乾ききる直前は閾値の上下を行ったり来たりするので乾いた判定は遅延させる(即応性は不要)
-            if ((millis() - lastRainingTime) >= MIN_DRY_DURATION) {
+            if (elapsedMsec(&now, &lastRainingTime) > MIN_DRY_DURATION) {
                 isRaining = false;
                 snprintf(msg, sizeof(msg), "水滴が乾いてから%d分経過したよ（雨はとっくに上がったよ）。 (rainVal=%u)", MIN_DRY_DURATION / 1000 / 60, rainVal);
                 Serial.println(msg);
@@ -223,7 +231,7 @@ void loop() {
     // M5Stack Grayではよく接続が切れてたので切れていたら再接続(Atom Liteでは切れるかは不明)
     connectWiFi();
 
-    if (lastElasticsearchSentTime == 0L || (millis() - lastElasticsearchSentTime) > 1000) {
+    if (isInitialTime(&lastElasticsearchSentTime) || elapsedMsec(&now, &lastElasticsearchSentTime) > 1000) {
         pressure = qmp6988.calcPressure();
 
         if (sht30.get() == 0) {
@@ -234,23 +242,14 @@ void loop() {
             humidity = 0;
         }
 
-        sendToElasticSearch(ts, pressure, temperature, humidity, rainVal);
-        lastElasticsearchSentTime = millis();
-    }
+        sendToElasticSearch(&now, pressure, temperature, humidity, rainVal);
+        lastElasticsearchSentTime = now;
 
-    // Ambientは1チャネル当たりデータ登録数が1日3,000件という制限があるため30秒毎に送信
-    if (lastAmbientSentTime == 0L || (millis() - lastAmbientSentTime) > 30000) {
-        pressure = qmp6988.calcPressure();
-
-        if (sht30.get() == 0) {
-            temperature = sht30.cTemp;
-            humidity = sht30.humidity;
-        } else {
-            temperature = 0;
-            humidity = 0;
+        // Ambientは1チャネル当たりデータ登録数が1日3,000件という制限があるため30秒毎に送信
+        // Elasticsearchへの送信間隔よりAmbientへの送信間隔の方が長い前提の処理になっていることに注意
+        if (isInitialTime(&lastAmbientSentTime) || elapsedMsec(&now, &lastAmbientSentTime) > 30000) {
+            sendToAmbient(pressure, temperature, humidity, rainVal);
+            lastAmbientSentTime = now;
         }
-
-        sendToAmbient(pressure, temperature, humidity, rainVal);
-        lastAmbientSentTime = millis();
     }
 }
