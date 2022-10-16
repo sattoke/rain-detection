@@ -20,6 +20,8 @@
 // const char* ELASTICSEARCH_URL = "https://localhost:9200/INDEX_NAME/_doc/";
 // const char* ELASTICSEARCH_USER = "xxx";
 // const char* ELASTICSEARCH_PASSWORD = "xxx";
+// const char* SLACK_TOKEN = "xoxb-xxx";
+// const char* SLACK_CHANNEL_ID= "Cxxxxxxxxx"
 
 
 const uint8_t WIFI_CONNECTION_RETRIES = 5;
@@ -52,6 +54,19 @@ void sendToLine(const char *msg) {
     http.addHeader("Authorization", "Bearer " + String(LINE_TOKEN));
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     int statusCode = http.POST("message=" + urlEncode(msg));
+}
+
+void sendToSlack(const char *msg) {
+    char json[256];
+    HTTPClient http;
+    http.begin("https://slack.com/api/chat.postMessage");
+    http.addHeader("Authorization", "Bearer " + String(SLACK_TOKEN));
+    http.addHeader("Content-Type", "application/json");
+
+    snprintf(json, sizeof(json),
+            "{\"channel\":\"%s\",\"text\":\"%s\"}",
+            SLACK_CHANNEL_ID, msg);
+    int statusCode = http.POST(json);
 }
 
 void sendToAmbient(float pressure, float temperature, float humidity, uint16_t rainVal) {
@@ -179,6 +194,7 @@ void setup() {
     configTime(9 * 60 * 60, 0, "ntp.nict.jp", "ntp.jst.mfeed.ad.jp");
     ambient.begin(AMB_CHANNELID, AMB_WRITEKEY, &client);
     sendToLine("起動完了");
+    sendToSlack("起動完了");
 }
 
 void loop() {
@@ -213,6 +229,7 @@ void loop() {
             snprintf(msg, sizeof(msg), "雨が降り始めたよ！ (rainVal=%u)", rainVal);
             Serial.println(msg);
             sendToLine(msg);
+            sendToSlack(msg);
             lastRainingNotificationTime = now;
         }
         lastRainingTime = now;
@@ -224,6 +241,7 @@ void loop() {
                 snprintf(msg, sizeof(msg), "水滴が乾いてから%d分経過したよ（雨はとっくに上がったよ）。 (rainVal=%u)", MIN_DRY_DURATION / 1000 / 60, rainVal);
                 Serial.println(msg);
                 sendToLine(msg);
+                sendToSlack(msg);
             }
         }
     }
